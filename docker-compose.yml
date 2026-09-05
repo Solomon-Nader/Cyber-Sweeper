@@ -1,0 +1,12 @@
+# docker compose run --rm cybersweep scan 192.168.1.0/24 -p common
+services:
+  cybersweep:
+    build: .
+    image: cybersweep:latest
+    network_mode: host          # see the real LAN (Linux hosts)
+    volumes:
+      - cybersweep-data:/data   # SQLite database + CVE cache persist here
+    environment:
+      - NVD_API_KEY=${NVD_API_KEY:-}
+volumes:
+  cybersweep-data:
