@@ -1,4 +1,4 @@
-# CyberSweep — Network Inspector (مفتش الشبكات)
+# CyberSweeper — Network Inspector (مفتش الشبكات)
 
 CyberSweep is a Python network inspection tool. It discovers the devices on a
 network, scans their ports, identifies the services behind those ports, looks
@@ -54,9 +54,9 @@ python -m venv .venv
 pip install -e .
 
 # Linux / macOS
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e .
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
 ```
 
 Linux users who want the GUI may also need Tk: `sudo apt install python3-tk`.
