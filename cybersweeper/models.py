@@ -1,9 +1,8 @@
-"""Data model used throughout CyberSweep.
-
-The scanner modules produce these plain dataclasses; the storage and report
-layers consume them. Keeping the model independent from SQLite and from the
-user interfaces makes each layer easy to unit-test in isolation.
-"""
+# Data model used throughout Cyber Sweeper.
+#
+# The scanner modules produce these plain dataclasses; the storage and report
+# layers consume them. Keeping the model independent from SQLite and from the
+# user interfaces makes each layer easy to unit-test in isolation.
 
 from __future__ import annotations
 
@@ -14,8 +13,8 @@ from typing import Any, Optional
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0, "UNKNOWN": 0}
 
 
+# Map a CVSS v3 base score to its qualitative severity.
 def severity_from_cvss(score: Optional[float]) -> str:
-    """Map a CVSS v3 base score to its qualitative severity."""
     if score is None:
         return "UNKNOWN"
     if score >= 9.0:
@@ -29,10 +28,9 @@ def severity_from_cvss(score: Optional[float]) -> str:
     return "INFO"
 
 
+# A potential weakness associated with a service on a host.
 @dataclass
 class Vulnerability:
-    """A potential weakness associated with a service on a host."""
-
     cve_id: str  # e.g. CVE-2023-38408, or CS-RULE-xxx for built-in heuristics
     summary: str
     severity: str = "UNKNOWN"
@@ -46,10 +44,9 @@ class Vulnerability:
         return asdict(self)
 
 
+# A single TCP/UDP port observed on a host.
 @dataclass
 class Port:
-    """A single TCP/UDP port observed on a host."""
-
     number: int
     protocol: str = "tcp"
     state: str = "open"  # open / closed / filtered
@@ -63,9 +60,9 @@ class Port:
     def is_open(self) -> bool:
         return self.state == "open"
 
+    # Human friendly product version string, fallback to service name.
     @property
     def service_label(self) -> str:
-        """Human friendly ``product version`` string, fallback to service name."""
         parts = [p for p in (self.product, self.version) if p]
         return " ".join(parts) if parts else self.service or "unknown"
 
@@ -75,10 +72,9 @@ class Port:
         return d
 
 
+# A network host and everything learned about it.
 @dataclass
 class Host:
-    """A network host and everything learned about it."""
-
     ip: str
     hostname: str = ""
     mac: str = ""
@@ -117,10 +113,9 @@ class Host:
         }
 
 
+# User-selected options for one scan run.
 @dataclass
 class ScanOptions:
-    """User-selected options for one scan run."""
-
     target: str
     ports: str = "top100"
     method: str = "auto"  # auto / socket / nmap
@@ -137,10 +132,9 @@ class ScanOptions:
         return asdict(self)
 
 
+# The complete outcome of a scan.
 @dataclass
 class ScanResult:
-    """The complete outcome of a scan."""
-
     options: ScanOptions
     started_at: datetime = field(default_factory=datetime.now)
     finished_at: Optional[datetime] = None

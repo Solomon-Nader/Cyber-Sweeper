@@ -1,18 +1,17 @@
-"""Service identification.
-
-Given an open port, CyberSweep tries to work out *what* is listening on it:
-
-1. **Banner grabbing** - read whatever the service sends on connect (SSH, FTP,
-   SMTP, POP3, IMAP, MySQL ...) or send a minimal HTTP request and read the
-   response headers.
-2. **Fingerprint matching** - a table of regular expressions turns the banner
-   into ``service`` / ``product`` / ``version`` fields.
-3. **Well-known port table** - if the banner is silent or unrecognised, fall
-   back to the IANA-style service name for that port number.
-
-When the nmap engine is used, nmap's own ``-sV`` data takes precedence and
-this module only fills in gaps.
-"""
+# Service identification.
+#
+# Given an open port, Cyber Sweeper tries to work out *what* is listening on it:
+#
+# 1. Banner grabbing - read whatever the service sends on connect (SSH, FTP,
+#    SMTP, POP3, IMAP, MySQL ...) or send a minimal HTTP request and read the
+#    response headers.
+# 2. Fingerprint matching - a table of regular expressions turns the banner
+#    into service / product / version fields.
+# 3. Well-known port table - if the banner is silent or unrecognised, fall
+#    back to the IANA-style service name for that port number.
+#
+# When the nmap engine is used, nmap's own -sV data takes precedence and
+# this module only fills in gaps.
 
 from __future__ import annotations
 
@@ -21,8 +20,8 @@ import socket
 from dataclasses import dataclass
 from typing import Optional
 
-from cybersweep import config
-from cybersweep.models import Port
+from cybersweeper import config
+from cybersweeper.models import Port
 
 
 @dataclass(frozen=True)
@@ -89,18 +88,17 @@ FINGERPRINTS: list[Fingerprint] = [
 ]
 
 
+# Read a service banner from an already-connected socket.
+#
+# For HTTP-like ports a HEAD request is sent first because web servers
+# do not talk until asked. Non-printable bytes are kept (escaped) because
+# binary protocols such as MySQL and RDP are recognised from them.
 def grab_banner(sock: socket.socket, port: int,
                 timeout: float = config.DEFAULT_BANNER_TIMEOUT) -> str:
-    """Read a service banner from an already-connected socket.
-
-    For HTTP-like ports a ``HEAD`` request is sent first because web servers
-    do not talk until asked. Non-printable bytes are kept (escaped) because
-    binary protocols such as MySQL and RDP are recognised from them.
-    """
     sock.settimeout(timeout)
     try:
         if port in config.HTTP_PORTS:
-            sock.sendall(b"HEAD / HTTP/1.0\r\nHost: localhost\r\nUser-Agent: CyberSweep\r\n\r\n")
+            sock.sendall(b"HEAD / HTTP/1.0\r\nHost: localhost\r\nUser-Agent: CyberSweeper\r\n\r\n")
         elif port in config.HTTPS_PORTS:
             return ""  # TLS handshake needed; leave to nmap or the table
         data = sock.recv(1024)
@@ -113,8 +111,8 @@ def grab_banner(sock: socket.socket, port: int,
     return data.decode("latin-1", errors="replace")[:1024]
 
 
+# Return (service, product, version) for a banner, or None.
 def identify_from_banner(banner: str) -> Optional[tuple[str, str, str]]:
-    """Return ``(service, product, version)`` for a banner, or None."""
     if not banner:
         return None
     for fp in FINGERPRINTS:
@@ -131,8 +129,8 @@ def identify_from_banner(banner: str) -> Optional[tuple[str, str, str]]:
     return None
 
 
+# Return a one-line, printable version of a banner for display/storage.
 def clean_banner(banner: str) -> str:
-    """Return a one-line, printable version of a banner for display/storage."""
     lines = []
     for raw in banner.replace("\r", "\n").split("\n"):
         printable = "".join(ch if 32 <= ord(ch) < 127 else " " for ch in raw).strip()
@@ -141,8 +139,8 @@ def clean_banner(banner: str) -> str:
     return " | ".join(lines[:3])[:200]
 
 
+# Populate service/product/version on *port* in place.
 def identify(port: Port) -> Port:
-    """Populate ``service``/``product``/``version`` on *port* in place."""
     guess = identify_from_banner(port.banner)
     if guess:
         service, product, version = guess

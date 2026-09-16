@@ -1,9 +1,8 @@
-"""The scan engine ties discovery, port scanning, service identification and
-vulnerability assessment together into one pipeline.
-
-Both the CLI and the GUI drive :class:`ScanEngine`; they only differ in how
-they display progress and results.
-"""
+# The scan engine ties discovery, port scanning, service identification and
+# vulnerability assessment together into one pipeline.
+#
+# Both the CLI and the GUI drive ScanEngine; they only differ in how
+# they display progress and results.
 
 from __future__ import annotations
 
@@ -13,18 +12,17 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Optional
 
-from cybersweep import config, discovery, portscan, utils, vulns
-from cybersweep.models import Host, ScanOptions, ScanResult
+from cybersweeper import config, discovery, portscan, utils, vulns
+from cybersweeper.models import Host, ScanOptions, ScanResult
 
-log = logging.getLogger("cybersweep.engine")
+log = logging.getLogger("cybersweeper.engine")
 
 # (phase, done, total, message)
 ProgressCallback = Callable[[str, int, int, str], None]
 
 
+# Run a complete scan described by ScanOptions.
 class ScanEngine:
-    """Run a complete scan described by :class:`ScanOptions`."""
-
     def __init__(self, options: ScanOptions, progress: Optional[ProgressCallback] = None,
                  nvd_client: Optional[vulns.NVDClient] = None) -> None:
         self.options = options
@@ -34,8 +32,8 @@ class ScanEngine:
 
     # ------------------------------------------------------------------ #
 
+    # Ask a running scan to stop as soon as possible.
     def cancel(self) -> None:
-        """Ask a running scan to stop as soon as possible."""
         self.cancel_event.set()
 
     @property
@@ -128,24 +126,34 @@ class ScanEngine:
         return result
 
 
+# Convenience wrapper: quick_scan("192.168.1.1", "common").
 def quick_scan(target: str, ports: str = "top100", **kwargs) -> ScanResult:
-    """Convenience wrapper: ``quick_scan("192.168.1.1", "common")``."""
     opts = ScanOptions(target=target, ports=ports, **kwargs)
     return ScanEngine(opts).run()
 
 
+# Summarise the tool's runtime environment for the check command.
 def environment_report() -> dict[str, str]:
-    """Summarise the tool's runtime environment for the ``check`` command."""
     import platform
     import sys
+
+    def has(module: str) -> str:
+        try:
+            __import__(module)
+        except ImportError:
+            return "NOT installed"
+        return "installed"
 
     return {
         "python": sys.version.split()[0],
         "platform": f"{platform.system()} {platform.release()}",
         "nmap binary": "found" if utils.nmap_available() else "NOT found",
         "python-nmap": "installed" if utils.python_nmap_available() else "NOT installed",
+        "requests (NVD lookups)": has("requests"),
+        "reportlab (PDF reports)": has("reportlab"),
+        "python-docx (Word reports)": has("docx"),
+        "tkinter (GUI)": has("tkinter"),
         "local ip": utils.local_ip(),
-        "local network": utils.local_network_cidr(),
         "data directory": str(config.data_dir()),
         "nvd api key": "set" if config.NVD_API_KEY_ENV in __import__("os").environ else "not set",
     }

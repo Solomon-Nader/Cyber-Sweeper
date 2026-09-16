@@ -1,12 +1,12 @@
-"""Tkinter graphical interface for CyberSweep.
-
-The GUI is a thin layer over :class:`cybersweep.engine.ScanEngine`: the scan
-runs in a background thread and posts progress/result messages to a queue that
-the Tk main loop drains every 100 ms, so the window stays responsive.
-"""
+# Tkinter graphical interface for Cyber Sweeper.
+#
+# The GUI is a thin layer over ScanEngine: the scan
+# runs in a background thread and posts progress/result messages to a queue that
+# the Tk main loop drains every 100 ms, so the window stays responsive.
 
 from __future__ import annotations
 
+import logging
 import queue
 import threading
 import tkinter as tk
@@ -14,17 +14,18 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
-from cybersweep import __version__, config, report, storage, utils
-from cybersweep.engine import ScanEngine
-from cybersweep.models import SEVERITY_ORDER, ScanOptions, ScanResult
+from cybersweeper import __version__, config, netinfo, report, storage, techreport, utils
+from cybersweeper.engine import ScanEngine
+from cybersweeper.models import SEVERITY_ORDER, ScanOptions, ScanResult
+
+log = logging.getLogger("cybersweeper.gui")
 
 SEVERITY_COLOURS = {"CRITICAL": "#7f1d1d", "HIGH": "#c2410c", "MEDIUM": "#b45309",
                     "LOW": "#2563eb", "INFO": "#4b5563"}
 
 
-class CyberSweepApp(ttk.Frame):
-    """Main application window."""
-
+# Main application window.
+class CyberSweeperApp(ttk.Frame):
     def __init__(self, master: tk.Tk, db_path: Optional[str] = None) -> None:
         super().__init__(master, padding=8)
         self.master = master
@@ -34,24 +35,36 @@ class CyberSweepApp(ttk.Frame):
         self.worker: Optional[threading.Thread] = None
         self.result: Optional[ScanResult] = None
 
-        master.title(f"CyberSweep {__version__} - Network Inspector")
+        master.title(f"Cyber Sweeper {__version__} - Network Inspector")
         master.geometry("1100x720")
         master.minsize(900, 600)
         self.pack(fill="both", expand=True)
         self._build_widgets()
         self.after(100, self._poll_queue)
+        self.after(200, self.detect_network)
 
     # ------------------------------------------------------------------ #
     # Layout
     # ------------------------------------------------------------------ #
 
     def _build_widgets(self) -> None:
+        # --- current network ---------------------------------------------
+        netbar = ttk.LabelFrame(self, text="Current network", padding=(8, 4))
+        netbar.pack(fill="x", pady=(0, 6))
+        self.network: Optional[netinfo.NetworkInfo] = None
+        self.network_var = tk.StringVar(value="Detecting the network this machine is connected to...")
+        ttk.Label(netbar, textvariable=self.network_var, anchor="w").pack(side="left", fill="x", expand=True)
+        self.use_net_btn = ttk.Button(netbar, text="Use as target", command=self.use_network_target,
+                                      state="disabled")
+        self.use_net_btn.pack(side="right")
+        ttk.Button(netbar, text="Detect again", command=self.detect_network).pack(side="right", padx=4)
+
         # --- scan options -------------------------------------------------
         opts = ttk.LabelFrame(self, text="Scan options", padding=8)
         opts.pack(fill="x")
 
         ttk.Label(opts, text="Target").grid(row=0, column=0, sticky="w")
-        self.target_var = tk.StringVar(value=utils.local_network_cidr())
+        self.target_var = tk.StringVar(value="")
         ttk.Entry(opts, textvariable=self.target_var, width=32).grid(row=0, column=1, sticky="we", padx=4)
 
         ttk.Label(opts, text="Ports").grid(row=0, column=2, sticky="w")
@@ -111,8 +124,8 @@ class CyberSweepApp(ttk.Frame):
         ttk.Checkbutton(flt, text="Open ports only", variable=self.open_only_var,
                         command=self.refresh_tables).pack(side="left", padx=8)
         ttk.Button(flt, text="History...", command=self.show_history).pack(side="right", padx=(8, 0))
-        for fmt in ("json", "html", "csv"):
-            ttk.Button(flt, text=fmt.upper(), width=6,
+        for fmt, label in (("json", "JSON"), ("csv", "CSV"), ("html", "HTML"), ("docx", "Word"), ("pdf", "PDF")):
+            ttk.Button(flt, text=label, width=6,
                        command=lambda f=fmt: self.export(f)).pack(side="right", padx=2)
         ttk.Label(flt, text="Export:").pack(side="right", padx=(8, 2))
 
@@ -147,7 +160,7 @@ class CyberSweepApp(ttk.Frame):
         ids = [c[0] for c in columns]
         tree = ttk.Treeview(frame, columns=ids, show="headings", selectmode="browse")
         for cid, title, width in columns:
-            tree.heading(cid, text=title, command=lambda c=cid, t=tree: CyberSweepApp._sort_tree(t, c, False))
+            tree.heading(cid, text=title, command=lambda c=cid, t=tree: CyberSweeperApp._sort_tree(t, c, False))
             tree.column(cid, width=width, anchor="w", stretch=(cid in ("banner", "summary", "recommendation")))
         vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
         hsb = ttk.Scrollbar(frame, orient="horizontal", command=tree.xview)
@@ -173,7 +186,35 @@ class CyberSweepApp(ttk.Frame):
         items.sort(key=key, reverse=reverse)
         for idx, (_, k) in enumerate(items):
             tree.move(k, "", idx)
-        tree.heading(col, command=lambda: CyberSweepApp._sort_tree(tree, col, not reverse))
+        tree.heading(col, command=lambda: CyberSweeperApp._sort_tree(tree, col, not reverse))
+
+    # ------------------------------------------------------------------ #
+    # Network detection
+    # ------------------------------------------------------------------ #
+
+    # Detect the connected network in a worker thread (it runs external commands).
+    def detect_network(self) -> None:
+        self.network_var.set("Detecting the network this machine is connected to...")
+        self.use_net_btn.configure(state="disabled")
+        threading.Thread(target=lambda: self.queue.put(("network", netinfo.detect_network())),
+                         daemon=True).start()
+
+    def _network_detected(self, net: netinfo.NetworkInfo) -> None:
+        self.network = net
+        self.network_var.set(net.describe())
+        if net.connected and net.cidr:
+            self.use_net_btn.configure(state="normal")
+            if not self.target_var.get().strip():
+                self.target_var.set(net.cidr)  # auto-target on first detection
+            self._log(f"network: {net.describe()} [{net.method}]")
+            for n in net.notes:
+                self._log(f"network note: {n}")
+        else:
+            self._log("network: not connected - enter a target manually or connect to a network")
+
+    def use_network_target(self) -> None:
+        if self.network and self.network.cidr:
+            self.target_var.set(self.network.cidr)
 
     # ------------------------------------------------------------------ #
     # Scanning
@@ -190,8 +231,13 @@ class CyberSweepApp(ttk.Frame):
             return
         target = self.target_var.get().strip()
         if not target:
-            messagebox.showwarning("CyberSweep", "Please enter a target.")
-            return
+            if self.network and self.network.connected and self.network.cidr:
+                target = self.network.cidr
+                self.target_var.set(target)
+            else:
+                messagebox.showwarning("Cyber Sweeper", "No network detected. Connect to Wi-Fi/Ethernet "
+                                       "and click 'Detect again', or enter a target manually.")
+                return
         try:
             ips = utils.parse_targets(target)
             utils.parse_ports(self.ports_var.get())
@@ -213,6 +259,8 @@ class CyberSweepApp(ttk.Frame):
             discover=self.discover_var.get(), service_detection=self.service_var.get(),
             cve_lookup=self.cve_var.get(), timeout=float(self.timeout_var.get()),
         )
+        self._auto_note = (f"target auto-detected: {self.network.describe()}"
+                           if self.network and self.network.connected and target == self.network.cidr else "")
         self.engine = ScanEngine(opts, progress=self._progress_from_thread)
         self.worker = threading.Thread(target=self._run_engine, daemon=True)
         self.start_btn.configure(state="disabled")
@@ -249,6 +297,8 @@ class CyberSweepApp(ttk.Frame):
                             phase != "ports"):
                         if phase != "discovery" or done == total:
                             self._log(f"[{phase}] {message}")
+                elif kind == "network":
+                    self._network_detected(payload)
                 elif kind == "result":
                     self._scan_finished(payload)
                 elif kind == "error":
@@ -258,6 +308,8 @@ class CyberSweepApp(ttk.Frame):
         self.after(100, self._poll_queue)
 
     def _scan_finished(self, result: ScanResult) -> None:
+        if getattr(self, "_auto_note", ""):
+            result.notes.insert(0, self._auto_note)
         self.result = result
         try:
             with storage.Database(self.db_path) as db:
@@ -342,11 +394,13 @@ class CyberSweepApp(ttk.Frame):
 
     def export(self, fmt: str) -> None:
         if not self.result:
-            messagebox.showinfo("CyberSweep", "Run or load a scan first.")
+            messagebox.showinfo("Cyber Sweeper", "Run or load a scan first.")
             return
-        ext = {"csv": ".csv", "html": ".html", "json": ".json"}[fmt]
-        path = filedialog.asksaveasfilename(defaultextension=ext, filetypes=[(fmt.upper(), "*" + ext)],
-                                            initialfile=f"cybersweep_scan_{self.result.scan_id or 'latest'}{ext}")
+        ext = {"csv": ".csv", "html": ".html", "json": ".json", "pdf": ".pdf", "docx": ".docx"}[fmt]
+        names = {"pdf": "PDF technical report", "docx": "Word technical report"}
+        stem = "cybersweeper_report" if fmt in names else "cybersweeper_scan"
+        path = filedialog.asksaveasfilename(defaultextension=ext, filetypes=[(names.get(fmt, fmt.upper()), "*" + ext)],
+                                            initialfile=f"{stem}_{self.result.scan_id or 'latest'}{ext}")
         if not path:
             return
         flt = self._current_filter()
@@ -354,6 +408,15 @@ class CyberSweepApp(ttk.Frame):
             storage.export_csv(self.result, path, open_only=self.open_only_var.get())
         elif fmt == "json":
             storage.export_json(self.result, path)
+        elif fmt in ("pdf", "docx"):
+            try:
+                techreport.write(self.result, fmt, path, flt)
+            except Exception as exc:  # a failed export must never look like success
+                log.exception("%s export failed", fmt)
+                messagebox.showerror("Export failed", f"{type(exc).__name__}: {exc}")
+                self.status_var.set(f"Export failed: {exc}")
+                self._log(f"{fmt.upper()} export FAILED: {type(exc).__name__}: {exc}")
+                return
         else:
             Path(path).write_text(report.render_html(self.result, flt), encoding="utf-8")
         self._log(f"exported {fmt.upper()} to {path}")
@@ -406,14 +469,54 @@ class CyberSweepApp(ttk.Frame):
         tree.bind("<Double-1>", load)
 
 
+ASSETS_DIR = Path(__file__).parent / "assets"
+
+
+ICON_PNGS = ("cybersweeper_16.png", "cybersweeper_24.png", "cybersweeper_32.png",
+             "cybersweeper_48.png", "cybersweeper_64.png", "cybersweeper.png")
+
+
+# Replace Tk's default feather with the Cyber Sweeper orca icon.
+#
+# Two things matter here. First, iconphoto must be handed *several*
+# pre-scaled images: given a single 256x256 PNG, Tk shrinks it to title-bar
+# size with a nearest-neighbour "subsample", which is what made earlier
+# versions show a blocky smudge. Second, on Windows the title bar and the
+# taskbar are driven by the window's WM_SETICON, which iconbitmap
+# sets from a multi-resolution .ico - and it has to be called on this window,
+# not only as default= (which applies to windows created afterwards).
+#
+# Failures are ignored; an icon is cosmetic.
+def apply_icon(root: tk.Tk) -> None:
+    icons = []
+    for name in ICON_PNGS:
+        path = ASSETS_DIR / name
+        if path.exists():
+            try:
+                icons.append(tk.PhotoImage(file=str(path), master=root))
+            except tk.TclError:  # pragma: no cover - unreadable or exotic Tk build
+                pass
+    root._cybersweeper_icons = icons  # keep references alive for the window's lifetime
+    try:
+        if icons:
+            root.iconphoto(True, *icons)
+        ico = ASSETS_DIR / "cybersweeper.ico"
+        if ico.exists() and utils.is_windows():
+            root.iconbitmap(str(ico))          # this window: title bar + taskbar
+            root.iconbitmap(default=str(ico))  # and every dialog opened later
+    except tk.TclError:  # pragma: no cover - headless or exotic Tk builds
+        pass
+
+
+# Create the Tk root window and run the application.
 def launch(db_path: Optional[str] = None) -> None:
-    """Create the Tk root window and run the application."""
     root = tk.Tk()
+    apply_icon(root)
     try:
         ttk.Style().theme_use("clam")
     except tk.TclError:  # pragma: no cover
         pass
-    CyberSweepApp(root, db_path=db_path)
+    CyberSweeperApp(root, db_path=db_path)
     root.mainloop()
 
 

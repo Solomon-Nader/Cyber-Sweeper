@@ -1,20 +1,19 @@
-"""Vulnerability lookup.
-
-Two complementary sources are used:
-
-1. **Built-in rules** (always available, offline) - configuration weaknesses
-   that are risky regardless of software version: clear-text protocols
-   (Telnet, FTP), management services exposed on the network (RDP, SMB, VNC,
-   databases without authentication) and similar. Each rule carries a
-   severity and a remediation recommendation.
-2. **NVD CVE database** (online) - the National Vulnerability Database REST
-   API 2.0 is queried by *product + version* keyword for every identified
-   service. Results are cached on disk (JSON) so repeated scans do not hit the
-   API again and so the tool still works offline for previously seen services.
-
-An optional API key (``NVD_API_KEY`` environment variable) lifts the public
-rate limit from 5 to 50 requests per 30 seconds.
-"""
+# Vulnerability lookup.
+#
+# Two complementary sources are used:
+#
+# 1. Built-in rules (always available, offline) - configuration weaknesses
+#    that are risky regardless of software version: clear-text protocols
+#    (Telnet, FTP), management services exposed on the network (RDP, SMB, VNC,
+#    databases without authentication) and similar. Each rule carries a
+#    severity and a remediation recommendation.
+# 2. NVD CVE database (online) - the National Vulnerability Database REST
+#    API 2.0 is queried by *product + version* keyword for every identified
+#    service. Results are cached on disk (JSON) so repeated scans do not hit the
+#    API again and so the tool still works offline for previously seen services.
+#
+# An optional API key (NVD_API_KEY environment variable) lifts the public
+# rate limit from 5 to 50 requests per 30 seconds.
 
 from __future__ import annotations
 
@@ -27,10 +26,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from cybersweep import config
-from cybersweep.models import Host, Port, Vulnerability, severity_from_cvss
+from cybersweeper import config
+from cybersweeper.models import Host, Port, Vulnerability, severity_from_cvss
+from cybersweeper.utils import truncate_words
 
-log = logging.getLogger("cybersweep.vulns")
+log = logging.getLogger("cybersweeper.vulns")
 
 
 # --------------------------------------------------------------------------- #
@@ -122,8 +122,8 @@ BUILTIN_RULES: list[Rule] = [
 ]
 
 
+# Return the built-in findings that apply to *port*.
 def rule_findings(port: Port) -> list[Vulnerability]:
-    """Return the built-in findings that apply to *port*."""
     findings = []
     for rule in BUILTIN_RULES:
         if rule.matches(port):
@@ -143,9 +143,8 @@ GENERIC_PRODUCTS = {"", "http server", "ftp server", "smtp server", "pop3 server
                     "smb", "telnet", "microsoft rdp"}
 
 
+# Tiny JSON-file cache: {query: {"fetched": iso, "items": [...]}}.
 class CVECache:
-    """Tiny JSON-file cache: ``{query: {"fetched": iso, "items": [...]}}``."""
-
     def __init__(self, path: Optional[Path] = None, ttl_days: int = config.CVE_CACHE_TTL_DAYS):
         self.path = Path(path) if path else config.default_cache_path()
         self.ttl = timedelta(days=ttl_days)
@@ -181,8 +180,22 @@ class CVECache:
         self._data[key] = {"fetched": datetime.now().isoformat(timespec="seconds"), "items": items}
 
 
+# True when NVD has withdrawn this CVE.
+#
+# A rejected entry is not a vulnerability. It keeps its CVE number and stays in
+# the database, its description rewritten to start "Rejected reason: ...", and a
+# keyword search still returns it. Reporting one is worse than reporting
+# nothing: it has no CVSS score, so it lands in the register with no severity,
+# and the standard "update to a patched version" advice is meaningless because
+# there is nothing to patch. Drop these at the source.
+def is_rejected(cve: dict, summary: str) -> bool:
+    if str(cve.get("vulnStatus", "")).strip().lower() == "rejected":
+        return True
+    return summary.lstrip().lower().startswith("rejected reason")
+
+
+# Convert an NVD API 2.0 JSON payload into Vulnerability objects.
 def parse_nvd_response(payload: dict) -> list[Vulnerability]:
-    """Convert an NVD API 2.0 JSON payload into Vulnerability objects."""
     vulns: list[Vulnerability] = []
     for item in payload.get("vulnerabilities", []):
         cve = item.get("cve", {})
@@ -192,6 +205,8 @@ def parse_nvd_response(payload: dict) -> list[Vulnerability]:
         descriptions = cve.get("descriptions", [])
         summary = next((d["value"] for d in descriptions if d.get("lang") == "en"),
                        descriptions[0]["value"] if descriptions else "")
+        if is_rejected(cve, summary):
+            continue
         score: Optional[float] = None
         metrics = cve.get("metrics", {})
         for key in ("cvssMetricV31", "cvssMetricV30", "cvssMetricV2"):
@@ -199,7 +214,7 @@ def parse_nvd_response(payload: dict) -> list[Vulnerability]:
                 score = metrics[key][0]["cvssData"].get("baseScore")
                 break
         vulns.append(Vulnerability(
-            cve_id=cve_id, summary=summary[:500], severity=severity_from_cvss(score),
+            cve_id=cve_id, summary=truncate_words(summary, 500), severity=severity_from_cvss(score),
             cvss_score=score, source="nvd", published=cve.get("published", "")[:10],
             url=f"https://nvd.nist.gov/vuln/detail/{cve_id}",
             recommendation="Update the affected software to a patched version; see the NVD entry.",
@@ -208,9 +223,8 @@ def parse_nvd_response(payload: dict) -> list[Vulnerability]:
     return vulns
 
 
+# Minimal client for the NVD CVE API 2.0 with rate limiting and caching.
 class NVDClient:
-    """Minimal client for the NVD CVE API 2.0 with rate limiting and caching."""
-
     def __init__(self, api_key: Optional[str] = None, cache: Optional[CVECache] = None,
                  session=None, max_results: int = config.NVD_RESULTS_PER_QUERY,
                  offline: bool = False) -> None:
@@ -248,8 +262,8 @@ class NVDClient:
         version = m.group(1) if m else ""
         return f"{product} {version}".strip()
 
+    # Look up CVEs for a product/version, using the cache when possible.
     def search(self, product: str, version: str) -> list[Vulnerability]:
-        """Look up CVEs for a product/version, using the cache when possible."""
         if not product or product.lower() in GENERIC_PRODUCTS:
             return []
         query = self.make_query(product, version)
@@ -260,7 +274,7 @@ class NVDClient:
             return []
 
         params: dict[str, Any] = {"keywordSearch": query, "resultsPerPage": self.max_results}
-        headers = {"User-Agent": "CyberSweep/1.0"}
+        headers = {"User-Agent": "CyberSweeper/1.0"}  # HTTP product tokens cannot contain spaces
         if self.api_key:
             headers["apiKey"] = self.api_key
         self._throttle()
@@ -286,12 +300,11 @@ class NVDClient:
 # --------------------------------------------------------------------------- #
 
 
+# Attach vulnerabilities to every open port of *host*.
+#
+# *client* may be None to skip online CVE lookups.
 def assess_host(host: Host, client: Optional[NVDClient] = None, use_rules: bool = True,
                 progress: Optional[Callable[[str], None]] = None) -> Host:
-    """Attach vulnerabilities to every open port of *host*.
-
-    *client* may be ``None`` to skip online CVE lookups.
-    """
     for port in host.open_ports:
         found: list[Vulnerability] = []
         if use_rules:

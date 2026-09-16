@@ -26,7 +26,7 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Test
-        run: pytest -q --cov=cybersweep --cov-report=term-missing
+        run: pytest -q --cov=cybersweeper --cov-report=term-missing
 
   docker:
     name: Docker build
@@ -34,6 +34,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build image
-        run: docker build -t cybersweep:ci .
+        run: docker build -t cybersweeper:ci .
       - name: Smoke test
-        run: docker run --rm cybersweep:ci check
+        run: docker run --rm cybersweeper:ci check

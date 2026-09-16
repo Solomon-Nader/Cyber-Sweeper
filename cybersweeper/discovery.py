@@ -1,17 +1,16 @@
-"""Host discovery: find which addresses in a target range are alive.
-
-Three techniques are available and can be combined:
-
-* **tcp** - a TCP connect probe against a handful of common ports using the
-  ``socket`` module. A host that answers with SYN/ACK *or* RST is alive. Works
-  everywhere without privileges and is the default fallback.
-* **ping** - the operating system's ``ping`` command (ICMP echo). Cross
-  platform (Windows / Linux / macOS flags are handled).
-* **arp** - ``nmap -sn`` which, on a local Ethernet segment, uses ARP and also
-  returns MAC addresses and vendors. Requires nmap (and privileges for ARP).
-
-``discover_hosts`` picks the best available technique when ``method="auto"``.
-"""
+# Host discovery: find which addresses in a target range are alive.
+#
+# Three techniques are available and can be combined:
+#
+# * tcp - a TCP connect probe against a handful of common ports using the
+#   socket module. A host that answers with SYN/ACK *or* RST is alive. Works
+#   everywhere without privileges and is the default fallback.
+# * ping - the operating system's ping command (ICMP echo). Cross
+#   platform (Windows / Linux / macOS flags are handled).
+# * arp - nmap -sn which, on a local Ethernet segment, uses ARP and also
+#   returns MAC addresses and vendors. Requires nmap (and privileges for ARP).
+#
+# discover_hosts picks the best available technique when method="auto".
 
 from __future__ import annotations
 
@@ -22,11 +21,11 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
-from cybersweep import config
-from cybersweep.models import Host
-from cybersweep.utils import is_windows, nmap_available, python_nmap_available
+from cybersweeper import config
+from cybersweeper.models import Host
+from cybersweeper.utils import is_windows, nmap_available, python_nmap_available
 
-log = logging.getLogger("cybersweep.discovery")
+log = logging.getLogger("cybersweeper.discovery")
 
 ProgressCallback = Callable[[int, int, str], None]
 
@@ -36,15 +35,14 @@ ProgressCallback = Callable[[int, int, str], None]
 # --------------------------------------------------------------------------- #
 
 
+# Return True if *ip* answers a TCP connection attempt on any probe port.
+#
+# connect_ex returns 0 for an open port and ECONNREFUSED (111 on
+# Linux, 10061 on Windows) for a closed-but-alive port; both prove the host
+# exists. A timeout or "host unreachable" proves nothing, so we try the next
+# port.
 def tcp_probe(ip: str, ports: Iterable[int] = config.DISCOVERY_PROBE_PORTS,
               timeout: float = config.DEFAULT_CONNECT_TIMEOUT) -> bool:
-    """Return True if *ip* answers a TCP connection attempt on any probe port.
-
-    ``connect_ex`` returns 0 for an open port and ``ECONNREFUSED`` (111 on
-    Linux, 10061 on Windows) for a closed-but-alive port; both prove the host
-    exists. A timeout or "host unreachable" proves nothing, so we try the next
-    port.
-    """
     refused = {111, 10061, 61}  # Linux, Windows, macOS ECONNREFUSED
     for port in ports:
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -60,8 +58,8 @@ def tcp_probe(ip: str, ports: Iterable[int] = config.DISCOVERY_PROBE_PORTS,
     return False
 
 
+# Return True if the host answers a single ICMP echo request.
 def ping_probe(ip: str, timeout_ms: int = config.DEFAULT_PING_TIMEOUT_MS) -> bool:
-    """Return True if the host answers a single ICMP echo request."""
     if is_windows():
         cmd = ["ping", "-n", "1", "-w", str(timeout_ms), ip]
     else:
@@ -81,8 +79,8 @@ def ping_probe(ip: str, timeout_ms: int = config.DEFAULT_PING_TIMEOUT_MS) -> boo
     return True
 
 
+# Best-effort reverse DNS lookup.
 def reverse_dns(ip: str, timeout: float = 1.0) -> str:
-    """Best-effort reverse DNS lookup."""
     old = socket.getdefaulttimeout()
     socket.setdefaulttimeout(timeout)
     try:
@@ -132,8 +130,8 @@ def discover_ping(ips: list[str], timeout_ms: int = config.DEFAULT_PING_TIMEOUT_
     return _sweep(ips, lambda ip: ping_probe(ip, timeout_ms), "ping", threads, progress)
 
 
+# Use nmap -sn for discovery. Returns MAC/vendor where nmap reports them.
 def discover_arp(ips: list[str], progress: Optional[ProgressCallback] = None) -> list[Host]:
-    """Use ``nmap -sn`` for discovery. Returns MAC/vendor where nmap reports them."""
     import nmap  # imported lazily so the rest of the module works without it
 
     scanner = nmap.PortScanner()
@@ -157,17 +155,16 @@ def discover_arp(ips: list[str], progress: Optional[ProgressCallback] = None) ->
     return hosts
 
 
+# Discover live hosts among *ips*.
+#
+# Returns (hosts, method_used). With method="auto" nmap is used when
+# it is installed, otherwise a combined TCP + ping sweep. Hosts found by any
+# technique are merged (a host is alive if any probe says so).
 def discover_hosts(ips: list[str], method: str = "auto",
                    timeout: float = config.DEFAULT_CONNECT_TIMEOUT,
                    threads: int = config.DEFAULT_THREADS,
                    resolve_names: bool = True,
                    progress: Optional[ProgressCallback] = None) -> tuple[list[Host], str]:
-    """Discover live hosts among *ips*.
-
-    Returns ``(hosts, method_used)``. With ``method="auto"`` nmap is used when
-    it is installed, otherwise a combined TCP + ping sweep. Hosts found by any
-    technique are merged (a host is alive if any probe says so).
-    """
     method = (method or "auto").lower()
     if method == "arp" and not (nmap_available() and python_nmap_available()):
         log.warning("nmap is not available; falling back to TCP discovery")

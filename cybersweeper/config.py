@@ -1,22 +1,21 @@
-"""Central configuration and static reference data for CyberSweep.
-
-Everything here is plain data: default timeouts, well-known port tables and the
-list of ports that make up the ``top100`` / ``common`` presets.
-"""
+# Central configuration and static reference data for Cyber Sweeper.
+#
+# Everything here is plain data: default timeouts, well-known port tables and the
+# list of ports that make up the top100 / common presets.
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-APP_NAME = "CyberSweep"
+APP_NAME = "Cyber Sweeper"
 BANNER = r"""
-   ______      __              _____
-  / ____/_  __/ /_  ___  _____/ ___/_      _____  ___  ____
- / /   / / / / __ \/ _ \/ ___/\__ \ | /| / / _ \/ _ \/ __ \
-/ /___/ /_/ / /_/ /  __/ /   ___/ / |/ |/ /  __/  __/ /_/ /
-\____/\__, /_.___/\___/_/   /____/|__/|__/\___/\___/ .___/
-     /____/                Network Inspector       /_/
+   ______      __                 _____
+  / ____/_  __/ /_  ___  _____   / ___/      _____  ___  ____  ___  _____
+ / /   / / / / __ \/ _ \/ ___/   \__ \ | /| / / _ \/ _ \/ __ \/ _ \/ ___/
+/ /___/ /_/ / /_/ /  __/ /      ___/ / |/ |/ /  __/  __/ /_/ /  __/ /
+\____/\__, /_.___/\___/_/      /____/|__/|__/\___/\___/ .___/\___/_/
+     /____/            Network Inspector             /_/
 """
 
 LEGAL_NOTICE = (
@@ -29,20 +28,49 @@ LEGAL_NOTICE = (
 # --------------------------------------------------------------------------- #
 
 
-def data_dir() -> Path:
-    """Return (and create) the directory used for the database and caches.
+DIR_NAME = ".cybersweeper"
+DB_NAME = "cybersweeper.db"
+LEGACY_DIR_NAME = ".cybersweep"  # names used before the 2.0.0 rename
+LEGACY_DB_NAME = "cybersweep.db"
 
-    The location can be overridden with the ``CYBERSWEEP_HOME`` environment
-    variable, which is handy for Docker volumes and for tests.
-    """
-    root = os.environ.get("CYBERSWEEP_HOME")
-    path = Path(root) if root else Path.home() / ".cybersweep"
+
+# Carry a pre-2.0.0 ~/.cybersweep directory over to the new name.
+#
+# Version 2.0.0 renamed the project, and with it both this directory and the
+# database inside it. Moving them once keeps scan history that was saved
+# before the rename. Any failure is ignored: a fresh directory is created
+# instead, which costs history but never blocks a scan.
+def _migrate_legacy(home: Path, path: Path) -> None:
+    legacy = home / LEGACY_DIR_NAME
+    if path.exists() or not legacy.is_dir():
+        return
+    try:
+        legacy.rename(path)
+        old_db = path / LEGACY_DB_NAME
+        if old_db.is_file() and not (path / DB_NAME).exists():
+            old_db.rename(path / DB_NAME)
+    except OSError:  # pragma: no cover - permissions, or a race with another process
+        pass
+
+
+# Return (and create) the directory used for the database and caches.
+#
+# The location can be overridden with the CYBERSWEEPER_HOME environment
+# variable, which is handy for Docker volumes and for tests.
+def data_dir() -> Path:
+    root = os.environ.get("CYBERSWEEPER_HOME")
+    if root:
+        path = Path(root)
+    else:
+        home = Path.home()
+        path = home / DIR_NAME
+        _migrate_legacy(home, path)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def default_db_path() -> Path:
-    return data_dir() / "cybersweep.db"
+    return data_dir() / DB_NAME
 
 
 def default_cache_path() -> Path:

@@ -1,6 +1,8 @@
-# CyberSweeper — Network Inspector (مفتش الشبكات)
+<img src="cybersweeper/assets/cybersweeper.png" alt="Cyber Sweeper icon" width="96" align="right">
 
-CyberSweep is a Python network inspection tool. It discovers the devices on a
+# Cyber Sweeper — Network Inspector (مفتش الشبكات)
+
+Cyber Sweeper is a Python network inspection tool. It discovers the devices on a
 network, scans their ports, identifies the services behind those ports, looks
 up known vulnerabilities (CVEs) and produces filterable reports — through both a
 command-line interface and a Tkinter graphical interface.
@@ -8,19 +10,21 @@ command-line interface and a Tkinter graphical interface.
 > **Legal notice.** Only scan networks and hosts that you own or have explicit
 > written permission to test. Unauthorised scanning may be illegal.
 
-![CyberSweep GUI](docs/images/gui_hosts.png)
+![Cyber Sweeper GUI](docs/images/gui_hosts.png)
 
 ## Features
 
-| Area | What CyberSweep does |
+| Area | What Cyber Sweeper does |
 |------|----------------------|
+| Network detection | Detects whether the machine is online, **Wi-Fi or Ethernet**, the **SSID**, IP/subnet, gateway and MAC — and uses that network as the default target |
 | Host discovery | TCP-connect probes (`socket`), ICMP ping, or `nmap -sn` ARP sweeps with MAC/vendor |
 | Port scanning | Multithreaded `socket` TCP-connect engine **or** `nmap -sV` through `python-nmap` — auto-selected |
 | Service identification | Banner grabbing + 40 regex fingerprints (SSH, HTTP, FTP, SMTP, MySQL, RDP, VNC …) with a well-known-port fallback |
 | Vulnerability lookup | 20 built-in configuration rules (offline) + live CVE search in the **NVD API 2.0** with disk caching |
-| Reports | Text, Markdown, HTML, CSV, JSON — filter by host, port, service, state, severity; sort by IP/ports/risk |
+| Technical report | One click / one command produces a finished **PDF or Word assessment report**: risk rating, executive summary, methodology, host inventory, findings register, prioritised remediation plan |
+| Reports & exports | Text, Markdown, HTML, CSV, JSON — filter by host, port, service, state, severity; sort by IP/ports/risk |
 | Storage | SQLite database of every scan (hosts → ports → findings), CSV export, scan history |
-| Interfaces | Full CLI (`scan`, `discover`, `report`, `history`, `delete`, `check`, `gui`) and a responsive Tkinter GUI |
+| Interfaces | Full CLI (`network`, `scan`, `discover`, `report`, `history`, `delete`, `check`, `gui`) and a responsive Tkinter GUI |
 | Customisation | Target ranges (`10.0.0.0/24`, `10.0.0.1-50`, hostnames), port presets or lists, engine choice, timeouts, thread count |
 | Portability | Windows, Linux, macOS · Python 3.9+ · Dockerfile · GitHub Actions CI |
 
@@ -32,7 +36,7 @@ Python 3.9 or newer. Check with `python --version` (Windows) or `python3 --versi
 
 ### 2. nmap (recommended, optional)
 
-CyberSweep works without nmap using its own socket engine, but nmap gives more
+Cyber Sweeper works without nmap using its own socket engine, but nmap gives more
 accurate service/version detection and ARP-based discovery.
 
 | Platform | Command |
@@ -42,7 +46,19 @@ accurate service/version detection and ARP-based discovery.
 | Fedora / RHEL | `sudo dnf install nmap` |
 | macOS | `brew install nmap` |
 
-### 3. CyberSweep
+### 3. Cyber Sweeper
+
+**One-command setup** (creates a virtual environment, installs everything, checks
+the machine and runs the tests):
+
+```powershell
+git clone https://github.com/Solomon-Nader/Cyber-Sweeper.git
+cd Cyber-Sweeper
+.\scripts\setup.ps1          # Windows PowerShell
+bash scripts/setup.sh        # Linux / macOS
+```
+
+Or step by step:
 
 ```bash
 git clone https://github.com/Solomon-Nader/Cyber-Sweeper.git
@@ -54,9 +70,9 @@ python -m venv .venv
 pip install -e .
 
 # Linux / macOS
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-.venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
 ```
 
 Linux users who want the GUI may also need Tk: `sudo apt install python3-tk`.
@@ -64,40 +80,52 @@ Linux users who want the GUI may also need Tk: `sudo apt install python3-tk`.
 Verify the environment:
 
 ```bash
-cybersweep check
+cybersweeper check
 ```
 
 ## Quick start
 
 ```bash
-# What is on my network?
-cybersweep discover                       # local /24, auto method
-cybersweep discover 192.168.1.0/24 -m tcp # force the socket technique
+# Which network am I on?  (Wi-Fi/Ethernet, SSID, subnet, gateway)
+cybersweeper network
+
+# Scan the network I'm connected to - no address needed
+cybersweeper scan                           # auto-detects the network and scans it (top100 ports)
+cybersweeper scan -p common                 # same, quicker
+cybersweeper discover                       # just list the devices on it
+
+# Or name a target yourself
+cybersweeper discover 192.168.1.0/24 -m tcp # force the socket technique
 
 # Scan one host with the 23 most common ports
-cybersweep scan 192.168.1.10 -p common
+cybersweeper scan 192.168.1.10 -p common
 
 # Scan a range, look up CVEs online, export everything
-cybersweep scan 192.168.1.0/24 -p 22,80,443,3389,445 --cve \
+cybersweeper scan 192.168.1.0/24 -p 22,80,443,3389,445 --cve \
     --html report.html --csv results.csv --json results.json
 
 # Force an engine
-cybersweep scan 10.0.0.5 -m nmap -p top100
-cybersweep scan 10.0.0.5 -m socket -p 1-1024 --threads 200 -t 0.5
+cybersweeper scan 10.0.0.5 -m nmap -p top100
+cybersweeper scan 10.0.0.5 -m socket -p 1-1024 --threads 200 -t 0.5
+
+# Technical report documents (PDF / Word) for the latest scan
+cybersweeper report -f pdf  -o assessment.pdf  --org "My Company"
+cybersweeper report -f docx -o assessment.docx
+cybersweeper scan -p common --pdf assessment.pdf   # scan + report in one go
 
 # Work with stored scans
-cybersweep history
-cybersweep report 3                              # text, open ports only
-cybersweep report 3 -f html -o scan3.html --min-severity HIGH
-cybersweep report 3 --service ssh --sort severity
-cybersweep report --state closed --include-down   # latest scan, everything
-cybersweep delete 3
+cybersweeper history
+cybersweeper report 3                              # text, open ports only
+cybersweeper report 3 -f html -o scan3.html --min-severity HIGH
+cybersweeper report 3 --service ssh --sort severity
+cybersweeper report --state closed --include-down   # latest scan, everything
+cybersweeper delete 3
 
 # Graphical interface
-cybersweep gui
+cybersweeper gui
 ```
 
-`python -m cybersweep ...` works as well if the `cybersweep` command is not on your PATH.
+`python -m cybersweeper ...` works as well if the `cybersweeper` command is not on your PATH.
 
 ### Target syntax
 
@@ -116,7 +144,7 @@ cybersweep gui
 
 `--cve` queries the NVD for every service whose product and version were
 identified. Without an API key the NVD allows 5 requests / 30 s, so lookups are
-throttled; results are cached for 7 days in `~/.cybersweep/cve_cache.json`.
+throttled; results are cached for 7 days in `~/.cybersweeper/cve_cache.json`.
 Request a free key at <https://nvd.nist.gov/developers/request-an-api-key> and
 set it as an environment variable:
 
@@ -131,32 +159,34 @@ always run, online or offline.
 ## Docker
 
 ```bash
-docker build -t cybersweep .
-docker run --rm --network host -v cybersweep-data:/data cybersweep scan 192.168.1.0/24 -p common
-docker compose run --rm cybersweep report
+docker build -t cybersweeper .
+docker run --rm --network host -v cybersweeper-data:/data cybersweeper scan 192.168.1.0/24 -p common
+docker compose run --rm cybersweeper report
 ```
 
 `--network host` lets the container see the real LAN (Linux). On Docker Desktop
 (Windows/macOS) the container can only reach the Docker VM's network, so run
-CyberSweep natively there for LAN scans.
+Cyber Sweeper natively there for LAN scans.
 
 ## Project layout
 
 ```
-cybersweep/
+cybersweeper/
 ├── cli.py         argparse command line interface
 ├── gui.py         Tkinter graphical interface
 ├── engine.py      pipeline: targets → discovery → port scan → services → vulns
+├── netinfo.py     current-network detection (Wi-Fi/Ethernet, SSID, subnet, gateway)
 ├── discovery.py   TCP / ICMP / ARP(nmap) host discovery
 ├── portscan.py    SocketScanner and NmapScanner
 ├── services.py    banner grabbing and fingerprint matching
 ├── vulns.py       built-in rules + NVD client with cache
 ├── storage.py     SQLite persistence, CSV/JSON export
 ├── report.py      filtering, sorting, text/Markdown/HTML rendering
+├── techreport.py  PDF / Word technical report documents
 ├── models.py      Host / Port / Vulnerability / ScanResult dataclasses
 ├── utils.py       target & port parsing, platform helpers
 └── config.py      defaults, port presets, well-known services
-tests/             119 pytest tests (network calls are mocked or use loopback)
+tests/             149 pytest tests (network calls are mocked or use loopback)
 docs/              user guide, architecture notes, screenshots
 ```
 
@@ -164,11 +194,12 @@ docs/              user guide, architecture notes, screenshots
 
 ```bash
 pip install -e ".[dev]"
-pytest -q --cov=cybersweep
+pytest -q --cov=cybersweeper
 ruff check .
 ```
 
-See [docs/USER_GUIDE.md](docs/USER_GUIDE.md) for a full walkthrough and
+See [CHANGELOG.md](CHANGELOG.md) for version history, [docs/RELEASING.md](docs/RELEASING.md) for how versions are numbered and published,
+[docs/USER_GUIDE.md](docs/USER_GUIDE.md) for a full walkthrough and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design notes.
 
 ## License

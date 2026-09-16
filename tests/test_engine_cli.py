@@ -3,8 +3,8 @@ from unittest import mock
 
 import pytest
 
-from cybersweep import cli, engine, portscan, storage
-from cybersweep.models import Host, ScanOptions
+from cybersweeper import cli, engine, portscan, storage
+from cybersweeper.models import Host, ScanOptions
 
 # --------------------------------------------------------------------------- #
 # engine
@@ -131,7 +131,7 @@ def test_cli_scan_saves_and_reports(ssh_server, tmp_path, capsys, monkeypatch):
     assert cli.main(["--db", str(db), "history"]) == 0
     assert "127.0.0.1" in capsys.readouterr().out
     assert cli.main(["--db", str(db), "report", "--format", "markdown"]) == 0
-    assert "# CyberSweep report - scan #1" in capsys.readouterr().out
+    assert "# Cyber Sweeper report - scan #1" in capsys.readouterr().out
     assert cli.main(["--db", str(db), "report", "1", "--service", "nothing-matches"]) == 0
     assert "No hosts match" in capsys.readouterr().out
     assert cli.main(["--db", str(db), "report", "1", "-f", "csv", "-o", str(tmp_path / "rep.csv")]) == 0
@@ -183,3 +183,27 @@ def test_cli_requires_command():
 def test_console_progress_disabled_when_not_tty():
     p = cli.ConsoleProgress(enabled=True)
     p("ports", 1, 2, "x")  # should not raise even if stderr is not a tty
+
+
+def test_cli_check_reports_missing_report_library(monkeypatch, capsys):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "reportlab":
+            raise ImportError("no reportlab")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    rc = cli.main(["check"])
+    out = capsys.readouterr().out
+    assert rc == 1
+    assert "reportlab (PDF reports)" in out and "NOT installed" in out
+    assert "pip install" in out and "reportlab" in out.split("Missing Python packages")[1]
+
+
+def test_cli_check_all_present(capsys):
+    rc = cli.main(["check"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "All required Python packages are present" in out

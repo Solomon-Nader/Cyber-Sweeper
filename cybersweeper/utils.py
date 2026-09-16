@@ -1,27 +1,30 @@
-"""Helper functions shared across CyberSweep: target/port parsing, validation,
-platform helpers and logging setup."""
+# Helper functions shared across Cyber Sweeper: target/port parsing, validation,
+# platform helpers and logging setup.
 
 from __future__ import annotations
 
 import ipaddress
 import logging
 import platform
+import re
 import shutil
 import socket
 import sys
 from collections.abc import Iterable
 
-from cybersweep import config
+from cybersweeper import config
 
-log = logging.getLogger("cybersweep")
+log = logging.getLogger("cybersweeper")
 
 
+# Raised when a target specification cannot be understood.
 class TargetError(ValueError):
-    """Raised when a target specification cannot be understood."""
+    pass
 
 
+# Raised when a port specification cannot be understood.
 class PortError(ValueError):
-    """Raised when a port specification cannot be understood."""
+    pass
 
 
 # --------------------------------------------------------------------------- #
@@ -29,8 +32,8 @@ class PortError(ValueError):
 # --------------------------------------------------------------------------- #
 
 
+# Configure the root cybersweeper logger for console output.
 def setup_logging(verbose: bool = False, quiet: bool = False) -> None:
-    """Configure the root ``cybersweep`` logger for console output."""
     level = logging.DEBUG if verbose else logging.WARNING if quiet else logging.INFO
     handler = logging.StreamHandler(sys.stderr)
     handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
@@ -49,13 +52,13 @@ def is_windows() -> bool:
     return platform.system().lower().startswith("win")
 
 
+# Return True when the nmap binary can be found on PATH.
 def nmap_available() -> bool:
-    """Return True when the nmap binary can be found on PATH."""
     return shutil.which("nmap") is not None
 
 
+# Return True when the python-nmap library can be imported.
 def python_nmap_available() -> bool:
-    """Return True when the ``python-nmap`` library can be imported."""
     try:
         import nmap  # noqa: F401
     except ImportError:
@@ -63,8 +66,8 @@ def python_nmap_available() -> bool:
     return True
 
 
+# Best-effort detection of the primary local IPv4 address.
 def local_ip() -> str:
-    """Best-effort detection of the primary local IPv4 address."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         # No packets are actually sent for a UDP "connect".
@@ -76,8 +79,8 @@ def local_ip() -> str:
         s.close()
 
 
+# Guess the local network in CIDR notation (defaults to a /24).
 def local_network_cidr(prefix: int = 24) -> str:
-    """Guess the local network in CIDR notation (defaults to a /24)."""
     ip = local_ip()
     net = ipaddress.ip_network(f"{ip}/{prefix}", strict=False)
     return str(net)
@@ -88,29 +91,28 @@ def local_network_cidr(prefix: int = 24) -> str:
 # --------------------------------------------------------------------------- #
 
 
+# Resolve a DNS name to an IPv4 address, raising TargetError on failure.
 def resolve_hostname(name: str) -> str:
-    """Resolve a DNS name to an IPv4 address, raising TargetError on failure."""
     try:
         return socket.gethostbyname(name)
     except socket.gaierror as exc:
         raise TargetError(f"cannot resolve hostname '{name}': {exc}") from exc
 
 
+# Expand a target specification into a list of IPv4 addresses.
+#
+# Supported forms (comma separated, whitespace ignored)::
+#
+#     192.168.1.10                single address
+#     192.168.1.0/24              CIDR network (network/broadcast excluded)
+#     192.168.1.10-20             last-octet range
+#     192.168.1.10-192.168.1.20   full range
+#     example.com                 hostname (resolved via DNS)
+#     localhost
+#
+# The list preserves order and contains no duplicates. TargetError is
+# raised for malformed input or when the expansion exceeds max_hosts.
 def parse_targets(spec: str, max_hosts: int = config.MAX_HOSTS_WITHOUT_CONFIRMATION) -> list[str]:
-    """Expand a target specification into a list of IPv4 addresses.
-
-    Supported forms (comma separated, whitespace ignored)::
-
-        192.168.1.10                single address
-        192.168.1.0/24              CIDR network (network/broadcast excluded)
-        192.168.1.10-20             last-octet range
-        192.168.1.10-192.168.1.20   full range
-        example.com                 hostname (resolved via DNS)
-        localhost
-
-    The list preserves order and contains no duplicates. ``TargetError`` is
-    raised for malformed input or when the expansion exceeds ``max_hosts``.
-    """
     if not spec or not spec.strip():
         raise TargetError("target specification is empty")
 
@@ -191,13 +193,12 @@ def parse_targets(spec: str, max_hosts: int = config.MAX_HOSTS_WITHOUT_CONFIRMAT
 # --------------------------------------------------------------------------- #
 
 
+# Expand a port specification into a sorted list of unique ports.
+#
+# Accepts presets (common, top100, top1000, all), single
+# ports, ranges (1-1024) and comma separated mixes of both. None or an
+# empty string returns the top100 preset.
 def parse_ports(spec: str | None) -> list[int]:
-    """Expand a port specification into a sorted list of unique ports.
-
-    Accepts presets (``common``, ``top100``, ``top1000``, ``all``), single
-    ports, ranges (``1-1024``) and comma separated mixes of both. ``None`` or an
-    empty string returns the ``top100`` preset.
-    """
     if spec is None or not spec.strip():
         return list(config.TOP_100_PORTS)
 
@@ -235,8 +236,8 @@ def parse_ports(spec: str | None) -> list[int]:
     return sorted(ports)
 
 
+# Compress a list of ports back into an nmap-style specification.
 def ports_to_spec(ports: Iterable[int]) -> str:
-    """Compress a list of ports back into an nmap-style specification."""
     ports = sorted(set(ports))
     if not ports:
         return ""
@@ -260,3 +261,44 @@ def human_duration(seconds: float) -> str:
         return f"{minutes}m {sec}s"
     hours, minutes = divmod(minutes, 60)
     return f"{hours}h {minutes}m"
+
+
+# Shorten text to at most *limit* characters without cutting a word in half.
+#
+# Truncating a CVE description with a bare slice produces endings like
+# "even this li", which looks like a bug in a submitted report. Cut back to the
+# last space instead and mark the cut with an ellipsis.
+def truncate_words(text: str, limit: int) -> str:
+    text = " ".join((text or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rstrip()
+    space = cut.rfind(" ")
+    if space > limit * 0.6:  # keep a bare slice if there is no sensible break
+        cut = cut[:space]
+    return cut.rstrip(" ,;:.-") + "..."
+
+
+# Markers that say a version string is a range or an open-ended guess rather
+# than one exact build: a wildcard component (3.X), a spaced range ("3.X - 4.X"),
+# or a qualifier ("2.0.8 or later", "before 1.2", "3.0 through 3.2").
+IMPRECISE_VERSION = re.compile(
+    r"[xX*]\b"
+    r"|\s[-–]\s"
+    r"|\b(?:or|and)\s+(?:later|earlier|newer|older|above|below|above)\b"
+    r"|\b(?:before|after|through|prior\s+to|up\s+to|greater\s+than|less\s+than)\b",
+    re.IGNORECASE,
+)
+
+
+# True when a version string identifies one specific build.
+#
+# This decides whether a CVE match can be trusted, so it errs towards precise
+# only when the string really is. Package-style suffixes are precise - OpenSSH
+# "8.9p1" and Ubuntu "5.4.0-150-generic" each name an exact build - while
+# anything carrying a wildcard, a range or an "or later" is not.
+def is_precise_version(version: str | None) -> bool:
+    v = (version or "").strip()
+    if not v or not any(ch.isdigit() for ch in v):
+        return False
+    return not IMPRECISE_VERSION.search(v)

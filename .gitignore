@@ -19,7 +19,7 @@ env/
 .idea/
 *.swp
 
-# CyberSweep runtime data
+# Cyber Sweeper runtime data
 *.db
 cve_cache.json
 /reports/

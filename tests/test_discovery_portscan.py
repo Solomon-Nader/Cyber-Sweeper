@@ -4,12 +4,12 @@ from unittest import mock
 
 import pytest
 
-from cybersweep import discovery, portscan
-from cybersweep.models import Host
+from cybersweeper import discovery, portscan
+from cybersweeper.models import Host
 
 
+# Return a port number on loopback that is currently closed.
 def _closed_port() -> int:
-    """Return a port number on loopback that is currently closed."""
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]

@@ -1,15 +1,14 @@
-"""Port scanning engines.
-
-* :class:`SocketScanner` - a multithreaded TCP connect scanner built on the
-  standard ``socket`` module. It works on every platform without privileges
-  and optionally grabs service banners.
-* :class:`NmapScanner` - a thin wrapper around ``python-nmap`` that runs
-  ``nmap -sV`` for more accurate port states, service and version detection,
-  and (where permitted) OS guessing.
-
-Both engines return the same :class:`~cybersweep.models.Host` objects so the
-rest of the application does not care which one produced the data.
-"""
+# Port scanning engines.
+#
+# * SocketScanner - a multithreaded TCP connect scanner built on the
+#   standard socket module. It works on every platform without privileges
+#   and optionally grabs service banners.
+# * NmapScanner - a thin wrapper around python-nmap that runs
+#   nmap -sV for more accurate port states, service and version detection,
+#   and (where permitted) OS guessing.
+#
+# Both engines return the same Host objects so the
+# rest of the application does not care which one produced the data.
 
 from __future__ import annotations
 
@@ -20,17 +19,18 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
-from cybersweep import config, services
-from cybersweep.models import Host, Port
-from cybersweep.utils import nmap_available, ports_to_spec, python_nmap_available
+from cybersweeper import config, services
+from cybersweeper.models import Host, Port
+from cybersweeper.utils import nmap_available, ports_to_spec, python_nmap_available
 
-log = logging.getLogger("cybersweep.portscan")
+log = logging.getLogger("cybersweeper.portscan")
 
 ProgressCallback = Callable[[int, int, str], None]
 
 
+# Raised inside worker threads when the user cancels the scan.
 class ScanCancelled(Exception):
-    """Raised inside worker threads when the user cancels the scan."""
+    pass
 
 
 # --------------------------------------------------------------------------- #
@@ -38,9 +38,8 @@ class ScanCancelled(Exception):
 # --------------------------------------------------------------------------- #
 
 
+# TCP connect scanner using socket.connect_ex in a thread pool.
 class SocketScanner:
-    """TCP connect scanner using ``socket.connect_ex`` in a thread pool."""
-
     name = "socket"
 
     def __init__(self, timeout: float = config.DEFAULT_CONNECT_TIMEOUT,
@@ -53,8 +52,8 @@ class SocketScanner:
 
     # -- single port ------------------------------------------------------- #
 
+    # Probe one TCP port and return a Port with its state.
     def probe_port(self, ip: str, port: int) -> Port:
-        """Probe one TCP port and return a :class:`Port` with its state."""
         if self.cancel_event.is_set():
             raise ScanCancelled()
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -78,9 +77,9 @@ class SocketScanner:
 
     # -- whole host -------------------------------------------------------- #
 
+    # Scan *ports* on *host*, filling host.ports with the results.
     def scan_host(self, host: Host, ports: list[int],
                   progress: Optional[ProgressCallback] = None) -> Host:
-        """Scan *ports* on *host*, filling ``host.ports`` with the results."""
         results: list[Port] = []
         done = 0
         total = len(ports)
@@ -116,9 +115,8 @@ class SocketScanner:
 # --------------------------------------------------------------------------- #
 
 
+# Run nmap through python-nmap and convert the output to our model.
 class NmapScanner:
-    """Run nmap through ``python-nmap`` and convert the output to our model."""
-
     name = "nmap"
 
     def __init__(self, service_detection: bool = True, os_detection: bool = False,
@@ -204,15 +202,14 @@ class NmapScanner:
 # --------------------------------------------------------------------------- #
 
 
+# Return the scanner requested by *method* (auto/socket/nmap).
+#
+# auto prefers nmap when it is installed and silently falls back to the
+# socket engine otherwise. Asking for nmap explicitly when it is missing
+# raises RuntimeError so the user knows why.
 def make_scanner(method: str = "auto", timeout: float = config.DEFAULT_CONNECT_TIMEOUT,
                  threads: int = config.DEFAULT_THREADS, service_detection: bool = True,
                  cancel_event: Optional[threading.Event] = None):
-    """Return the scanner requested by *method* (``auto``/``socket``/``nmap``).
-
-    ``auto`` prefers nmap when it is installed and silently falls back to the
-    socket engine otherwise. Asking for ``nmap`` explicitly when it is missing
-    raises ``RuntimeError`` so the user knows why.
-    """
     method = (method or "auto").lower()
     if method == "nmap":
         return NmapScanner(service_detection=service_detection)

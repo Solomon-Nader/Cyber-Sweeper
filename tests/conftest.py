@@ -1,4 +1,4 @@
-"""Shared pytest fixtures."""
+# Shared pytest fixtures.
 
 from __future__ import annotations
 
@@ -7,20 +7,19 @@ import threading
 
 import pytest
 
-from cybersweep.models import Host, Port, ScanOptions, ScanResult, Vulnerability
+from cybersweeper.models import Host, Port, ScanOptions, ScanResult, Vulnerability
 
 
+# Keep the database and CVE cache inside a temporary directory.
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path, monkeypatch):
-    """Keep the database and CVE cache inside a temporary directory."""
-    monkeypatch.setenv("CYBERSWEEP_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("CYBERSWEEPER_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("NVD_API_KEY", raising=False)
     yield tmp_path
 
 
+# A tiny TCP server that sends a fixed banner to every client.
 class BannerServer:
-    """A tiny TCP server that sends a fixed banner to every client."""
-
     def __init__(self, banner: bytes, reply_to_request: bool = False) -> None:
         self.banner = banner
         self.reply_to_request = reply_to_request
@@ -76,9 +75,9 @@ def http_server():
     srv.close()
 
 
+# A fully populated ScanResult used by storage / report tests.
 @pytest.fixture
 def sample_result() -> ScanResult:
-    """A fully populated ScanResult used by storage / report tests."""
     ssh = Port(number=22, state="open", service="ssh", product="OpenSSH", version="8.9p1",
                banner="SSH-2.0-OpenSSH_8.9p1",
                vulnerabilities=[Vulnerability("CVE-2023-38408", "PKCS#11 RCE in ssh-agent",

@@ -1,12 +1,11 @@
-"""Persistence: SQLite database plus CSV / JSON export.
-
-Schema (one row per entity, foreign keys cascade on delete)::
-
-    scans           one row per scan run
-    hosts           hosts seen in a scan
-    ports           ports observed on a host
-    vulnerabilities findings attached to a port
-"""
+# Persistence: SQLite database plus CSV / JSON export.
+#
+# Schema (one row per entity, foreign keys cascade on delete)::
+#
+#     scans           one row per scan run
+#     hosts           hosts seen in a scan
+#     ports           ports observed on a host
+#     vulnerabilities findings attached to a port
 
 from __future__ import annotations
 
@@ -17,8 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from cybersweep import config
-from cybersweep.models import Host, Port, ScanOptions, ScanResult, Vulnerability
+from cybersweeper import config
+from cybersweeper.models import Host, Port, ScanOptions, ScanResult, Vulnerability
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS scans (
@@ -72,9 +71,8 @@ CREATE INDEX IF NOT EXISTS idx_vulns_port ON vulnerabilities(port_id);
 """
 
 
+# Thin wrapper over sqlite3 for saving and loading scan results.
 class Database:
-    """Thin wrapper over ``sqlite3`` for saving and loading scan results."""
-
     def __init__(self, path: Optional[Path | str] = None) -> None:
         self.path = str(path) if path else str(config.default_db_path())
         self.conn = sqlite3.connect(self.path)
@@ -95,8 +93,8 @@ class Database:
 
     # -- writing ----------------------------------------------------------
 
+    # Persist a ScanResult and return its new scan_id.
     def save_scan(self, result: ScanResult) -> int:
-        """Persist a ScanResult and return its new ``scan_id``."""
         cur = self.conn.cursor()
         cur.execute(
             "INSERT INTO scans (target, ports_spec, engine, options_json, started_at, "
@@ -154,9 +152,13 @@ class Database:
             " (SELECT COUNT(*) FROM vulnerabilities v JOIN ports p ON v.port_id = p.id "
             "   JOIN hosts h ON p.host_id = h.id WHERE h.scan_id = s.id) AS vulns "
             "FROM scans s ORDER BY s.id DESC LIMIT ?",
-            (limit,),
+            (limit if limit and limit > 0 else -1,),
         ).fetchall()
         return [dict(r) for r in rows]
+        # How many scans are stored, so the CLI can tell when a listing is cut short.
+
+    def count_scans(self) -> int:
+        return int(self.conn.execute("SELECT COUNT(*) AS n FROM scans").fetchone()["n"])
 
     def latest_scan_id(self) -> Optional[int]:
         row = self.conn.execute("SELECT MAX(id) AS id FROM scans").fetchone()
@@ -204,12 +206,11 @@ CSV_COLUMNS = ["scan_id", "ip", "hostname", "mac", "vendor", "port", "protocol",
                "cvss_score", "summary", "recommendation"]
 
 
+# Return one flat row per (host, port, finding) combination.
+#
+# Hosts without ports and ports without findings still produce a row so the
+# export never silently drops information.
 def flatten(result: ScanResult, open_only: bool = True) -> list[dict[str, Any]]:
-    """Return one flat row per (host, port, finding) combination.
-
-    Hosts without ports and ports without findings still produce a row so the
-    export never silently drops information.
-    """
     rows: list[dict[str, Any]] = []
     for host in result.hosts:
         ports = host.open_ports if open_only else host.ports

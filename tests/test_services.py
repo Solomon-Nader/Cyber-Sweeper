@@ -1,7 +1,7 @@
 import pytest
 
-from cybersweep import services
-from cybersweep.models import Port
+from cybersweeper import services
+from cybersweeper.models import Port
 
 
 @pytest.mark.parametrize("banner, expected", [
@@ -68,7 +68,7 @@ def test_grab_banner_from_live_ssh_server(ssh_server):
 def test_grab_banner_sends_http_request(http_server, monkeypatch):
     import socket
 
-    from cybersweep import config
+    from cybersweeper import config
 
     monkeypatch.setattr(config, "HTTP_PORTS", set(config.HTTP_PORTS) | {http_server.port})
     s = socket.create_connection(("127.0.0.1", http_server.port), timeout=2)

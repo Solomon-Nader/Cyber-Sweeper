@@ -1,8 +1,8 @@
 import csv
 import json
 
-from cybersweep import report, storage
-from cybersweep.models import ScanOptions, ScanResult
+from cybersweeper import report, storage
+from cybersweeper.models import ScanOptions, ScanResult
 
 # --------------------------------------------------------------------------- #
 # storage
@@ -140,7 +140,7 @@ def test_render_text_empty_filter(sample_result):
 
 def test_render_markdown(sample_result):
     md = report.render_markdown(sample_result)
-    assert md.startswith("# CyberSweep report")
+    assert md.startswith("# Cyber Sweeper report")
     assert "| 22/tcp | open | ssh | OpenSSH 8.9p1 | CRITICAL |" in md
     assert "**CRITICAL** `CVE-2023-38408`" in md
 

@@ -1,8 +1,8 @@
 import json
 from unittest import mock
 
-from cybersweep import vulns
-from cybersweep.models import Host, Port, severity_from_cvss
+from cybersweeper import vulns
+from cybersweeper.models import Host, Port, severity_from_cvss
 
 NVD_SAMPLE = {
     "resultsPerPage": 2, "totalResults": 2,
@@ -136,3 +136,36 @@ def test_assess_host_without_client_only_rules():
     host = Host(ip="10.0.0.1", ports=[Port(number=21, state="open", service="ftp", product="vsFTPd", version="3")])
     vulns.assess_host(host, client=None)
     assert [v.source for v in host.vulnerabilities] == ["rule"]
+
+
+def test_rejected_cves_are_never_reported():
+    """A withdrawn CVE has no score and nothing to patch - it is not a finding."""
+    payload = {"vulnerabilities": [
+        {"cve": {"id": "CVE-2007-4044", "vulnStatus": "Rejected",
+                 "descriptions": [{"lang": "en", "value": "Rejected reason: This candidate was withdrawn."}]}},
+        {"cve": {"id": "CVE-2009-0001", "vulnStatus": "Analyzed",
+                 "descriptions": [{"lang": "en", "value": "A real overflow."}],
+                 "metrics": {"cvssMetricV2": [{"cvssData": {"baseScore": 7.5}}]}}},
+    ]}
+
+    found = vulns.parse_nvd_response(payload)
+
+    assert [v.cve_id for v in found] == ["CVE-2009-0001"]
+
+
+def test_rejected_is_detected_from_the_description_when_status_is_absent():
+    payload = {"vulnerabilities": [{"cve": {
+        "id": "CVE-2000-1234",
+        "descriptions": [{"lang": "en", "value": "  Rejected reason: duplicate of CVE-2000-1111."}]}}]}
+    assert vulns.parse_nvd_response(payload) == []
+
+
+def test_long_cve_summaries_are_cut_at_a_word_boundary():
+    long_text = "word " * 200
+    payload = {"vulnerabilities": [{"cve": {
+        "id": "CVE-2020-1", "descriptions": [{"lang": "en", "value": long_text}]}}]}
+
+    summary = vulns.parse_nvd_response(payload)[0].summary
+
+    assert len(summary) <= 503 and summary.endswith("...")
+    assert not summary.rstrip(".").endswith("wor")  # no half-word like "even this li"
